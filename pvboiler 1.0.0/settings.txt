@@ -1,0 +1,33 @@
+>>ELhb	E	B	1	0	99	A	30	Element hb
+>>ELlb	E	B	1	0	99	A	0	Element lb
+>>HH	E	B	1	0	24	A	0	Uren
+>>MM	E	B	1	0	60	A	0	Minuten
+>>DD	E	B	1	1	31	A	10	Dag
+>>MO	E	B	1	1	12	A	10	Maand
+>>YY	E	B	1	0	99	A	18	Jaar
+>>MaxkWh	E	B	7	0	99	A	10/10/10/10/10/10/10	Max kwh
+>>kWhW-hb	E	B	1	0	99	A	0	maximaal per week
+>>kWhW-lb	E	B	1	0	99	A	0
+>>kWhM-hb	E	B	1	0	99	A	0
+>>kWhM-lb	E	B	1	0	99	A	0
+>>kWhY-hb	E	B	1	0	99	A	0
+>>kWhY-lb	E	B	1	0	99	A	0
+>>StartH	E	B	7	0	24	A	12/12/12/12/12/12/12	Start uur
+>>StopH	E	B	7	0	24	A	16/16/16/16/16/16/16	Stop uur
+>>MinT	E	B	7	0	100	A	50/50/50/50/50/50/50	Minimale T
+>>MaxT	E	B	7	0	100	A	65/65/65/65/65/65/65	Maximale T
+>>USED-hb	E	B	1	0	99	A	0	Kwh Gebruikt hb
+>>USED-lb	E	B	1	0	99	A	0
+>>USED-d	E	B	7	0	99	A	0/0/0/0/0/0/0
+>>USED-w	E	W	1	0	20000	A	0
+>>USED-m	E	W	1	0	20000	A	0
+>>USED-y	E	W	1	0	20000	A	0
+>>WEEK-day	E	W	1	0	65000	A	0	week day counter
+>>MONTH-day	E	W	1	0	20000	A	0
+>>YEAR-day	E	W	1	0	20000	A	0
+>>test	E	B	1	0	128	A	^
+#define STG_DESCRIPTOR_FILE "settings.txt"
+#define STG_MAX_NUM_SETTINGS 28
+#define STG_RAM_ARRAY_SIZE 0
+#define STG_MAX_SETTING_NAME_LEN 9
+#define STG_MAX_SETTING_VALUE_LEN 5

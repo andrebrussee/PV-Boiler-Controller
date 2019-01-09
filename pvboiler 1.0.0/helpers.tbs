@@ -1,0 +1,235 @@
+include "global.tbh"
+'dim curr_year, curr_month, curr_weekday, curr_date, curr_hours, curr_minutes, curr_seconds as byte
+dim xd_1, xd_2, yd_1, yd_2 as byte
+dim xd_1p, xd_2p, yd_1p, yd_2p as byte
+dim xoffset as integer
+
+sub set_SMALL_FONT()
+
+	romfile.open(SMALL_FONT)
+	lcd.setfont(romfile.offset)	
+	lcd.forecolor=TXT_GRAY
+	lcd.backcolor=BG_ECONO
+	lcd.textverticalspacing=2
+	lcd.texthorizontalspacing=2
+
+
+end sub
+
+sub set_LCD_STD_FONT()
+
+	romfile.open(LCD_STD_FONT)
+	lcd.setfont(romfile.offset)	
+	lcd.forecolor=TXT_GRAY
+	lcd.backcolor=BG_ECONO
+	lcd.textverticalspacing=2
+	lcd.texthorizontalspacing=2
+
+	
+end sub
+sub weekdayframe()
+
+	dim day as pl_days_of_week
+	dim x1,y1 as word
+	dim z1 as byte
+	
+	rtc.getdata(x1,y1,z1)
+
+	day = weekday(x1)
+	
+		xoffset = day-1
+		clear_old_dayrect()
+
+		xd_1 = 77 + xoffset * 21
+		xd_2 = xd_1 + 16
+		yd_1 = 50 
+		yd_2 = 65
+		
+		'lcd.forecolor= TXT_GRAY
+		lcd.forecolor= FG_ECONO
+		lcd.rectangle(xd_1,yd_1,xd_2,yd_2)
+		
+		xd_1p = xd_1
+		xd_2p = xd_2
+		yd_1p = yd_1
+		yd_2p = yd_2
+
+	exit sub
+
+
+end sub
+
+sub clear_old_dayrect()
+
+		lcd.forecolor = BG_ECONO
+		lcd.rectangle(xd_1p,yd_1p,xd_2p,yd_2p)
+		
+end sub
+
+
+
+sub read_settings() 'read all settings and put on screen at startup
+	dim n as integer
+	dim MaxkWh as word
+
+	set_SMALL_FONT()
+    dim yoffset as integer
+	yoffset=0
+	
+	for n = 0 to 6
+	
+		lcd.print(str(stg_get("MaxkWh",n)),80 + yoffset,70)
+		yoffset = yoffset + 21
+		
+	next
+
+	yoffset=0
+	
+
+	for n = 0 to 6
+	
+		lcd.print(str(stg_get("StartH",n)),80 + yoffset,85)
+		yoffset = yoffset + 21
+		
+	next
+
+	yoffset=0
+	
+	for n = 0 to 6
+	
+		lcd.print(str(stg_get("StopH",n)),80 + yoffset,100)
+		yoffset = yoffset + 21
+		
+	next
+
+	yoffset=0
+
+	for n = 0 to 6
+	
+		lcd.print(str(stg_get("MinT",n)),80 + yoffset,115)
+		yoffset = yoffset + 21
+		
+	next
+
+	yoffset=0
+	
+	for n = 0 to 6
+	
+		lcd.print(str(stg_get("MaxT",n)),80 + yoffset,130)
+		yoffset = yoffset + 21
+		
+	next
+
+	
+	dim byteh as byte
+	dim bytel as byte
+	dim combined as word
+	
+	byteh = stg_get("ELhb",0)
+	bytel = stg_get("ELlb",0)
+	combined = byteh * 100 + bytel
+	
+	select case len(str(combined))
+
+		case 1:
+			lcd.print("000"+ str(combined),184,35)
+		case 2:
+			lcd.print("00"+ str(combined),184,35)
+		case 3:
+			lcd.print("0"+ str(combined),184,35)
+		case 4:
+			lcd.print(str(combined),184,35)
+	end select
+	
+	byteh = stg_get("kWhW-hb",0)
+	bytel = stg_get("kWhW-lb",0)
+	combined = byteh * 100 + bytel
+	
+	select case len(str(combined))
+
+		case 1:
+			lcd.print("00"+ str(combined),226,70)
+		case 2:
+			lcd.print("0"+ str(combined),226,70)
+		case 3:
+			lcd.print(str(combined),226,70)
+	end select
+	
+	byteh = stg_get("kWhM-hb",0)
+	bytel = stg_get("kWhM-lb",0)
+	combined = byteh * 100 + bytel
+	
+	select case len(str(combined))
+
+		case 1:
+			lcd.print("000"+ str(combined),254,70)
+		case 2:
+			lcd.print("00"+ str(combined),254,70)
+		case 3:
+			lcd.print("0"+ str(combined),254,70)
+		case 4:
+			lcd.print(str(combined),254,70)
+	end select
+
+	byteh = stg_get("kWhY-hb",0)
+	bytel = stg_get("kWhY-lb",0)
+	combined = byteh * 100 + bytel
+	MaxkWh = combined
+	
+	select case len(str(combined))
+
+		case 1:
+			lcd.print("000"+ str(combined),289,70)
+		case 2:
+			lcd.print("00"+ str(combined),289,70)
+		case 3:
+			lcd.print("0"+ str(combined),289,70)
+		case 4:
+			lcd.print(str(combined),289,70)
+	end select
+
+			' write week, month and year used to screen
+		
+		combined = val(stg_get("USED-w",0))
+		
+		select case len(str(combined))
+
+			case 1:
+				lcd.print("00"+ str(combined),226,85)
+			case 2:
+				lcd.print("0"+ str(combined),226,85)
+			case 3:
+				lcd.print(str(combined),226,85)
+		end select
+		
+		combined = val(stg_get("USED-m",0))
+		
+		select case len(str(combined))
+
+			case 1:
+				lcd.print("000"+ str(combined),254,85)
+			case 2:
+				lcd.print("00"+ str(combined),254,85)
+			case 3:
+				lcd.print("0"+ str(combined),254,85)
+			case 4:
+				lcd.print(str(combined),254,85)
+		end select
+
+		combined = val(stg_get("USED-y",0))
+					
+		select case len(str(combined))
+
+			case 1:
+				lcd.print("000"+ str(combined),289,85)
+			case 2:
+				lcd.print("00"+ str(combined),289,85)
+			case 3:
+				lcd.print("0"+ str(combined),289,85)
+			case 4:
+				lcd.print(str(combined),289,85)
+		end select
+
+
+end sub
+

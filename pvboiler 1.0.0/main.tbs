@@ -1,0 +1,1342 @@
+include "global.tbh"
+
+'PV boiler controller V 1.0.0 (c) Econo 2019
+
+declare sub signal_strength_set(strength as byte)
+declare sub on_ser_data_arrival()
+declare Rbuff3txt as string
+dim Rbuff3txt as string
+dim TopMarginCountValue as word
+dim TempValueString as string
+dim TempValue as string
+dim ElementStatus as boolean
+Dim element as word
+
+dim area as byte
+dim x_veld as byte
+dim y_veld as byte
+dim admin as boolean
+
+dim x_1 as byte
+dim y_1 as byte
+dim x_2 as byte
+dim y_2 as byte
+dim x_1p as byte
+dim y_1p as byte
+dim x_2p as byte
+dim y_2p as byte
+dim curr_year, curr_month, curr_weekday, curr_date, curr_hours, curr_minutes, curr_seconds as byte
+dim x1,y1 as word
+dim z1 as byte
+dim datestring, timestring as string
+dim prev_time as word
+dim USEDday as byte
+dim USEDweek as word
+dim USEDmonth as word
+dim USEDyear as word
+dim USEDdayWatt as word
+dim USEdweekWatt as word
+dim USEDmonthWatt as word
+dim USEDyearWatt as word
+dim byteh as byte
+dim bytel as byte
+dim combined as word
+dim used, remain, maxjaar as word
+dim heatup, cooldown as boolean
+dim day as pl_days_of_week
+
+'====================================================================
+sub on_sys_init()
+
+'=========================STG========================================
+	dim x as en_stg_status_codes
+	dim stg_name as string(STG_MAX_SETTING_NAME_LEN)
+	
+	if stg_start()<>EN_STG_STATUS_OK then sys.halt
+
+	x=stg_check_all(stg_name)
+	select case x
+	case EN_STG_STATUS_OK:
+		'--- all good ---
+	
+	case EN_STG_STATUS_INVALID, EN_STG_STATUS_FAILURE:
+		if stg_restore_multiple(EN_STG_INIT_MODE_NORMAL)<>EN_STG_STATUS_OK then sys.halt
+	
+	case else:
+		'some other trouble
+		sys.halt
+	end select
+	
+	ser.num=2 'econo tibbit relais
+	ser.rxbuffrq(5)
+	ser.txbuffrq(1)
+
+	ser.num=3 'econo tibbit ds18b20 T sensor
+	ser.rxbuffrq(5)
+	ser.txbuffrq(1)
+
+	sys.buffalloc
+
+	'Setup the serial ports
+	
+	ser.num=2
+	ser.mode=PL_SER_MODE_UART 
+	ser.baudrate=ser.div9600	 	'9600
+	ser.bits=PL_SER_BB_8					
+	ser.parity=PL_SER_PR_NONE				
+	ser.flowcontrol=DISABLED				
+	ser.interface= PL_SER_SI_FULLDUPLEX		
+	ser.enabled= YES
+	
+	ser.num=3
+	ser.mode=PL_SER_MODE_UART 
+	ser.baudrate=ser.div9600	 	'9600
+	ser.bits=PL_SER_BB_8					
+	ser.parity=PL_SER_PR_NONE				
+	ser.flowcontrol=DISABLED				
+	ser.interface=  PL_SER_SI_HALFDUPLEX 		
+	ser.enabled= YES
+
+
+	
+	'----- INIT LCD -----
+	
+	lcd.width=320
+	lcd.height=240
+	
+	'RST
+	io.num=PL_IO_NUM_55
+	io.enabled=YES
+
+	'DC
+	io.num=PL_IO_NUM_43
+	io.enabled=YES
+
+	'WR
+	io.num=PL_IO_NUM_42
+	io.enabled=YES
+
+	'RD
+	io.num=PL_IO_NUM_41
+	io.enabled=YES
+
+	'CS
+	io.num=PL_IO_NUM_40
+	io.enabled=YES
+
+	lcd.iomapping="55,43,42,41,40,0" 'RST,DC,WR,RD,CS,data_bus
+	lcd.rotated=YES 'yes, the LCD is installed up side down
+	lcd.enabled=YES
+
+	'backlight ON
+	io.num=PL_IO_NUM_54 
+	io.enabled=YES
+	io.state=LOW
+
+	set_LCD_STD_FONT()
+	lcd.filledrectangle(0,0,319,239)
+	TopMarginCountValue=70
+	
+	lcd.print("Econo PV-Boiler Controller" ,25,10)
+	lcd.print(" *      -->|     +      -" ,10,210)
+	
+	set_SMALL_FONT()
+	lcd.print(" Datum:            Verm.      W Tijd:      " ,10,35)
+	lcd.print("          ma di wo do vr za zo  W   M   J" ,10,55)
+	lcd.print("Max kWh:                               " ,10,70)
+	lcd.print("Start uur:                             " ,10,85)
+	lcd.print("Stop uur:                              " ,10,100)
+	lcd.print("Min T:                                 " ,10,115)
+	lcd.print("Max T:                                 " ,10,130)
+	lcd.print(" D",228,100)
+
+	lcd.print("Reset",285,98)
+	lcd.print("Test",285,137)
+	
+	set_LCD_STD_FONT()
+	lcd.print("Boiler:",20,155)
+	lcd.print("Gebruikt:" ,163,155)
+	lcd.print("Status:" ,20,180)
+	lcd.print("Resterend:" ,150,180)
+	
+
+	read_settings()
+ 
+	'----- KEYPAD -----
+	
+	kp.returnlinesmapping="36,37,38,39"
+	kp.enabled=YES
+	kp.Longpressdelay=200
+
+
+	'----- BUZZER -----
+
+	beep.divider=17000 '21600
+
+
+	'----- SIGNAL STRENGTH INDICATOR -----
+	io.num=46
+	io.enabled=YES
+	io.num=47
+	io.enabled=YES
+	io.num=48
+	io.enabled=YES
+	signal_strength_set(&b00000)
+
+
+   ' start variables
+	x_veld = 0
+	y_veld = 0
+	area= -1
+	admin = false
+	ElementStatus = false
+	USEDday=0
+    USEDweek = 0
+	USEDmonth = 0
+	USEDyear = 0
+	USEDdayWatt=0
+	USEdweekWatt = 0
+	USEDmonthWatt = 0
+	USEDyearWatt = 0
+	heatup=true
+
+	
+	sys.onsystimerperiod=100 '1 sec
+	
+	rtc.getdata(x1,y1,z1)
+	
+	prev_time = y1
+	day = weekday(x1)
+	stg_set("WEEK-day",0,str(day))
+	stg_set("MONTH-day",0,str(month(x1)))
+	stg_set("YEAR-day",0,str(year(x1)))
+	
+	weekdayframe()
+	
+end sub
+
+sub on_kp(key_event as pl_kp_event_codes, key_code as byte)
+	dim s as string(16)
+	dim s2 as string(2)
+	dim x as byte
+	dim tmp as word
+	rtc.getdata(x1,y1,z1)
+	
+	if key_event= PL_KP_EVENT_PRESSED then
+		beep.play("B*",PL_BEEP_CANINT)
+		pat.play("G~",PL_PAT_CANINT)
+
+		'if there is a time/date change update de date-time fields, gridupdown will incr/decrement en set clock accordingly
+		stg_set("DD",0,date(x1))
+		stg_set("MO",0,month(x1))
+		stg_set("YY",0,year(x1))
+		stg_set("HH",0,hours(y1))
+		stg_set("MM",0,minutes(y1))
+
+		select case key_code
+
+		case 0: 'here we step through the edit area's
+
+		'Shift from setting areas
+		'area 0 | y_veld = 0,1,2,3,4 = grid settings
+		'area 5 | y_veld = 5 = date-DD
+		'area 6 | y_veld = 6 = date-MM
+		'area 7 | y_veld = 7 = date-YY
+		'area 8 | y_veld = 8 = time-HH
+		'area 9 | y_veld = 9 = time-MM
+		'area 10 | y_veld = 10 = element xx.
+		'area 11 | y_veld = 11 = element .xx
+		'area 12 | y_veld = 12 = kWh-WW xx.
+		'area 13 | y_veld = 13 = KWH-WW .xx
+		'area 14 | y_veld = 14 = kWh-MM xx.
+		'area 15 | y_veld = 15 = KWH-MM .xx
+		'area 16 | y_veld = 16 = kWh-YY xx.
+		'area 17 | y_veld = 17 = KWH-YY .xx
+		'area 18 | y_veld = 18 = gebruikt xx.
+		'area 19 | y_veld = 19 = gebruikt .xx
+		
+            area = area+1
+	
+			dim skip as boolean
+			skip = true
+			
+			do while skip = true
+			
+				if admin then 'filter 0-4 and 12-17
+				
+					select case area
+					case 0,1,2,3,4,12,13,14,15,16,17:
+						area = area + 1
+					case else:
+						skip = false
+					end select
+					
+				else 'filter 5-11 and 18-19
+				
+					select case area
+						case 5,6,7,8,9,10,11,18,19:
+							area = area + 1
+						case else:
+							skip = false
+					end select
+				end if
+			loop
+			
+			if admin = true then
+				if area > 19 then area = 5	
+			 else
+				if area > 17 then area = 0	
+			end if
+
+
+		select case area 'here we paint the selection boxes
+			
+				case 0: 'week-settings 
+					x_veld = 0
+					y_veld = 0
+					clear_old_rect()
+
+					x_1 = 78 + x_veld * 21
+					x_2 = x_1 + 16
+					y_1 = 65 + y_veld * 15
+					y_2 = 80 + y_veld * 15
+					
+					lcd.forecolor= TXT_GRAY
+					lcd.rectangle(x_1,y_1,x_2,y_2)
+					
+					x_1p = x_1
+					x_2p = x_2
+					y_1p = y_1
+					y_2p = y_2
+					
+				case 1: 'week-settings
+					x_veld = 0
+					y_veld = 1
+					clear_old_rect()
+
+					x_1 = 78 + x_veld * 21
+					x_2 = x_1 + 16
+					y_1 = 65 + y_veld * 15
+					y_2 = 80 + y_veld * 15
+					
+					lcd.forecolor= TXT_GRAY
+					lcd.rectangle(x_1,y_1,x_2,y_2)
+					
+					x_1p = x_1
+					x_2p = x_2
+					y_1p = y_1
+					y_2p = y_2
+
+				case 2: 'week-settings
+					x_veld = 0
+					y_veld = 2
+					clear_old_rect()
+
+					x_1 = 78 + x_veld * 21
+					x_2 = x_1 + 16
+					y_1 = 65 + y_veld * 15
+					y_2 = 80 + y_veld * 15
+					
+					lcd.forecolor= TXT_GRAY
+					lcd.rectangle(x_1,y_1,x_2,y_2)
+					
+					x_1p = x_1
+					x_2p = x_2
+					y_1p = y_1
+					y_2p = y_2
+
+				case 3: 'week-settings
+					x_veld = 0
+					y_veld = 3
+					clear_old_rect()
+
+					x_1 = 78 + x_veld * 21
+					x_2 = x_1 + 16
+					y_1 = 65 + y_veld * 15
+					y_2 = 80 + y_veld * 15
+					
+					lcd.forecolor= TXT_GRAY
+					lcd.rectangle(x_1,y_1,x_2,y_2)
+					
+					x_1p = x_1
+					x_2p = x_2
+					y_1p = y_1
+					y_2p = y_2
+
+				case 4: 'week-settings
+					x_veld = 0
+					y_veld = 4
+					clear_old_rect()
+
+					x_1 = 78 + x_veld * 21
+					x_2 = x_1 + 16
+					y_1 = 65 + y_veld * 15
+					y_2 = 80 + y_veld * 15
+					
+					lcd.forecolor= TXT_GRAY
+					lcd.rectangle(x_1,y_1,x_2,y_2)
+					
+					x_1p = x_1
+					x_2p = x_2
+					y_1p = y_1
+					y_2p = y_2
+
+				case 5: 'date - day
+					x_veld = 0
+					y_veld = 5
+					clear_old_rect()
+
+					x_1 = 63
+					x_2 = 79
+					y_1 = 30
+					y_2 = 45
+					
+					lcd.forecolor= TXT_GRAY
+					lcd.rectangle(x_1,y_1,x_2,y_2)
+					
+					x_1p = x_1
+					x_2p = x_2
+					y_1p = y_1
+					y_2p = y_2
+				
+				case 6: 'date - month
+					x_veld = 0
+					y_veld = 6
+					clear_old_rect()
+
+					x_1 = 85
+					x_2 = 101
+					y_1 = 30
+					y_2 = 45
+					
+					lcd.forecolor= TXT_GRAY
+					lcd.rectangle(x_1,y_1,x_2,y_2)
+					
+					x_1p = x_1
+					x_2p = x_2
+					y_1p = y_1
+					y_2p = y_2
+
+				case 7: 'date - year
+					x_veld = 0
+					y_veld = 7
+					clear_old_rect()
+
+					x_1 = 121
+					x_2 = 137
+					y_1 = 30
+					y_2 = 45
+					
+					lcd.forecolor= TXT_GRAY
+					lcd.rectangle(x_1,y_1,x_2,y_2)
+					
+					x_1p = x_1
+					x_2p = x_2
+					y_1p = y_1
+					y_2p = y_2
+
+				case 8: 'tijd hh
+					x_veld = 0
+					y_veld = 8
+					clear_old_rect()
+
+					lcd.forecolor= TXT_GRAY
+					lcd.verline(274,30,45)
+					lcd.verline(290,30,45)
+					lcd.horline(274,290,30)
+					lcd.horline(274,290,45)
+					
+				case 9: 'tijd mm
+					x_veld = 0
+					y_veld = 9
+					clear_old_rect()
+
+					lcd.forecolor= TXT_GRAY
+					lcd.verline(295,30,45)
+					lcd.verline(311,30,45)
+					lcd.horline(295,311,30)
+					lcd.horline(295,311,45)
+
+				case 10: 'element hb
+					x_veld = 0
+					y_veld = 10
+					clear_old_rect()
+
+					x_1 = 182
+					x_2 = 197
+					y_1 = 30
+					y_2 = 45
+					
+					lcd.forecolor= TXT_GRAY
+					lcd.rectangle(x_1,y_1,x_2,y_2)
+					
+					x_1p = x_1
+					x_2p = x_2
+					y_1p = y_1
+					y_2p = y_2
+
+				case 11: 'element lb
+					x_veld = 0
+					y_veld = 11
+					clear_old_rect()
+
+					x_1 = 197
+					x_2 = 212
+					y_1 = 30
+					y_2 = 45
+					
+					lcd.forecolor= TXT_GRAY
+					lcd.rectangle(x_1,y_1,x_2,y_2)
+					
+					x_1p = x_1
+					x_2p = x_2
+					y_1p = y_1
+					y_2p = y_2
+
+
+				case 12: 'kwh week hb
+					x_veld = 0
+					y_veld = 12
+					clear_old_rect()
+
+					lcd.forecolor= TXT_GRAY
+					lcd.verline(223,65,80)
+					lcd.verline(231,65,80)
+					lcd.horline(223,231,65)
+					lcd.horline(223,231,80)
+
+				case 13: 'kwh week lb
+					x_veld = 0
+					y_veld = 13
+					clear_old_rect()
+
+					lcd.forecolor= TXT_GRAY
+					lcd.verline(231,65,80)
+					lcd.verline(247,65,80)
+					lcd.horline(231,247,65)
+					lcd.horline(231,247,80)
+
+				case 14: 'kwh month hb
+					x_veld = 0
+					y_veld = 14
+					clear_old_rect()
+
+					lcd.forecolor= TXT_GRAY
+					lcd.verline(251,65,80)
+					lcd.verline(267,65,80)
+					lcd.horline(251,267,65)
+					lcd.horline(251,267,80)
+
+				case 15: 'kwh month lb
+					x_veld = 0
+					y_veld = 15
+					clear_old_rect()
+
+					lcd.forecolor= TXT_GRAY
+					lcd.verline(267,65,80)
+					lcd.verline(283,65,80)
+					lcd.horline(267,283,65)
+					lcd.horline(267,283,80)
+
+				case 16: 'kwh year hb
+					x_veld = 0
+					y_veld = 16
+					clear_old_rect()
+
+					lcd.forecolor= TXT_GRAY
+					lcd.verline(286,65,80)
+					lcd.verline(302,65,80)
+					lcd.horline(286,302,65)
+					lcd.horline(286,302,80)
+
+				case 17: 'kwh year lb
+					x_veld = 0
+					y_veld = 17
+					clear_old_rect()
+
+					lcd.forecolor= TXT_GRAY
+					lcd.verline(302,65,80)
+					lcd.verline(318,65,80)
+					lcd.horline(302,318,65)
+					lcd.horline(302,318,80)
+
+				case 18: 'used hb
+					x_veld = 0
+					y_veld = 18
+					clear_old_rect()
+
+					lcd.forecolor= TXT_GRAY
+					lcd.verline(252,150,175)
+					lcd.verline(279,150,175)
+					lcd.horline(252,279,175)
+					lcd.horline(252,279,150)
+				
+				case 19: 'used hb
+					x_veld = 0
+					y_veld = 19
+					clear_old_rect()
+
+					lcd.forecolor= TXT_GRAY
+					lcd.verline(279,150,175)
+					lcd.verline(305,150,175)
+					lcd.horline(279,305,175)
+					lcd.horline(279,305,150)
+		
+			end select
+
+		
+		case 1: 'tab
+			'lcd.rectangle(92,65,108,80) - first square
+			if area >=0 and area <=5 and not admin then 
+
+				x_veld = x_veld +1
+
+				if x_veld = 7 then 
+					x_veld = 0
+					y_veld = y_veld + 1
+				end if
+
+				If y_veld = 5 then y_veld = 0
+
+				lcd.forecolor = BG_ECONO
+				lcd.rectangle(x_1p,y_1p,x_2p,y_2p)
+
+
+				x_1 = 78 + x_veld * 21
+				x_2 = x_1 + 16
+				y_1 = 65 + y_veld * 15
+				y_2 = 80 + y_veld * 15
+				
+				lcd.forecolor= TXT_GRAY
+				lcd.rectangle(x_1,y_1,x_2,y_2)
+				
+				x_1p = x_1
+				x_2p = x_2
+				y_1p = y_1
+				y_2p = y_2
+			
+			end if
+			
+			
+			  
+			case 2: 'up
+
+			select case y_veld
+				case 0:
+					GridUpDown(true,"MaxkWh",99,0,0,70)
+				case 1:
+					GridUpDown(true,"StartH",24,0,0,85)
+				case 2:
+					GridUpDown(true,"StopH",24,0,0,100)
+				case 3:
+					GridUpDown(true,"MinT",95,0,0,115)
+				case 4:
+					GridUpDown(true,"MaxT",95,0,0,130)
+				case 5:
+					GridUpDown(true,"DD",31,1,66,35)
+					rtc.setdata(daycount(stg_get("YY",0),stg_get("MO",0),stg_get("DD",0)),mincount(stg_get("HH",0),val(stg_get("MM",0))),0)
+				case 6:
+					GridUpDown(true,"MO",12,1,87,35)
+					rtc.setdata(daycount(stg_get("YY",0),stg_get("MO",0),stg_get("DD",0)),mincount(stg_get("HH",0),val(stg_get("MM",0))),0)
+				case 7:
+					GridUpDown(true,"YY",99,0,122,35)
+					rtc.setdata(daycount(stg_get("YY",0),stg_get("MO",0),stg_get("DD",0)),mincount(stg_get("HH",0),val(stg_get("MM",0))),0)
+				case 8:
+					GridUpDown(true,"HH",23,0,276,35)
+					rtc.setdata(daycount(stg_get("YY",0),stg_get("MO",0),stg_get("DD",0)),mincount(stg_get("HH",0),val(stg_get("MM",0))),0)
+				case 9:
+					GridUpDown(true,"MM",59,0,297,35)
+					rtc.setdata(daycount(stg_get("YY",0),stg_get("MO",0),stg_get("DD",0)),mincount(stg_get("HH",0),val(stg_get("MM",0))),0)
+				case 10:
+					GridUpDown(true,"ELhb",99,0,184,35)
+				case 11:
+					GridUpDown(true,"ELlb",99,0,198,35)
+				case 12:
+					GridUpDown(true,"kWhW-hb",9,0,226,70)
+				case 13:
+					GridUpDown(true,"kWhW-lb",99,0,233,70)
+				case 14:
+					GridUpDown(true,"kWhM-hb",99,0,254,70)
+				case 15:
+					GridUpDown(true,"kWhM-lb",99,0,268,70)
+				case 16:
+					GridUpDown(true,"kWhY-hb",99,0,289,70)
+				case 17:
+					GridUpDown(true,"kWhY-lb",99,0,303,70)
+				case 18:
+					GridUpDown(true,"USED-hb",99,0,255,155)
+				case 19:
+					GridUpDown(true,"USED-lb",99,0,281,155)
+			end select
+				
+				
+			case 3: 'down
+
+			select case y_veld
+				case 0:
+					GridUpDown(false,"MaxkWh",99,0,0,70)
+				case 1:
+					GridUpDown(false,"StartH",24,0,0,85)
+				case 2:
+					GridUpDown(false,"StopH",24,0,0,100)
+				case 3:
+					GridUpDown(false,"MinT",95,0,0,115)
+				case 4:
+					GridUpDown(false,"MaxT",95,0,0,130)
+				case 5:	
+					GridUpDown(false,"DD",31,1,66,35)
+					rtc.setdata(daycount(stg_get("YY",0),stg_get("MO",0),stg_get("DD",0)),mincount(stg_get("HH",0),val(stg_get("MM",0))),0)
+				case 6:
+					GridUpDown(false,"MO",12,1,87,35)
+					rtc.setdata(daycount(stg_get("YY",0),stg_get("MO",0),stg_get("DD",0)),mincount(stg_get("HH",0),val(stg_get("MM",0))),0)
+				case 7:
+					GridUpDown(false,"YY",99,0,122,35)
+					rtc.setdata(daycount(stg_get("YY",0),stg_get("MO",0),stg_get("DD",0)),mincount(stg_get("HH",0),val(stg_get("MM",0))),0)
+				case 8:
+					GridUpDown(false,"HH",23,0,276,35)
+					rtc.setdata(daycount(stg_get("YY",0),stg_get("MO",0),stg_get("DD",0)),mincount(stg_get("HH",0),val(stg_get("MM",0))),0)
+				case 9:
+					GridUpDown(false,"MM",59,0,297,35)
+					rtc.setdata(daycount(stg_get("YY",0),stg_get("MO",0),stg_get("DD",0)),mincount(stg_get("HH",0),val(stg_get("MM",0))),0)
+				case 10:
+					GridUpDown(false,"ELhb",99,0,184,35)
+				case 11:
+					GridUpDown(false,"ELlb",99,0,198,35)
+				case 12:
+					GridUpDown(false,"kWhW-hb",9,0,226,70)
+				case 13:
+					GridUpDown(false,"kWhW-lb",99,0,233,70)
+				case 14:
+					GridUpDown(false,"kWhM-hb",99,0,254,70)
+				case 15:
+					GridUpDown(false,"kWhM-lb",99,0,268,70)
+				case 16:
+					GridUpDown(false,"kWhY-hb",99,0,289,70)
+				case 17:
+					GridUpDown(false,"kWhY-lb",99,0,303,70)
+				case 18:
+					GridUpDown(false,"USED-hb",99,0,255,155)
+				case 19:
+					GridUpDown(false,"USED-lb",99,0,281,155)
+			end select
+		
+		
+		end select
+		
+	
+	else if key_event=PL_KP_EVENT_RELEASED then
+		pat.play("-",PL_PAT_CANINT)
+	end if
+	
+	if key_event= PL_KP_EVENT_LONGPRESSED then '2 sec
+		
+		SYS.debugprint("long pressed") 'toggle admin mode
+		
+		select case key_code
+		
+		case 0: '* key
+			
+				if admin = true then 
+					area = 0
+					admin = false
+					x_veld = 0
+					y_veld = 0
+					clear_old_rect()
+
+					x_1 = 78 + x_veld * 21
+					x_2 = x_1 + 16
+					y_1 = 65 + y_veld * 15
+					y_2 = 80 + y_veld * 15
+					
+					lcd.forecolor= TXT_GRAY
+					lcd.rectangle(x_1,y_1,x_2,y_2)
+					
+					x_1p = x_1
+					x_2p = x_2
+					y_1p = y_1
+					y_2p = y_2
+					
+				else 
+					admin= true
+					area = 5
+
+					x_veld = 0
+					y_veld = 5
+					clear_old_rect()
+
+					x_1 = 63
+					x_2 = 79
+					y_1 = 30
+					y_2 = 45
+					
+					lcd.forecolor= TXT_GRAY
+					lcd.rectangle(x_1,y_1,x_2,y_2)
+					
+					x_1p = x_1
+					x_2p = x_2
+					y_1p = y_1
+					y_2p = y_2
+
+				end if
+				
+				case 1: 'reset usage to 0 for all counters
+				
+						stg_set("USED-y",0,"0")
+						stg_set("USED-m",0,"0")
+						stg_set("USED-w",0,"0")
+						stg_set("USED-hb",0,"0")
+						stg_set("USED-lb",0,"0")
+						stg_set("USED-d",0,"0")
+						stg_set("USED-d",1,"0")
+						stg_set("USED-d",2,"0")
+						stg_set("USED-d",3,"0")
+						stg_set("USED-d",4,"0")
+						stg_set("USED-d",5,"0")
+						stg_set("USED-d",6,"0")
+
+		end select
+		
+	end if
+	
+	weekdayframe()
+
+end sub
+function GridUpDown(updown as boolean, varname as string, max as integer, min as integer, x_offset as word, y_offset as word) as boolean
+
+				dim tmp as integer
+				tmp = stg_get(varname,x_veld)
+				
+				if updown then 'up== true, down==false
+				
+					if tmp < max then  tmp = tmp + 1
+					stg_set(varname,x_veld,str(tmp))
+					
+				else
+				
+					if tmp > min then tmp = tmp - 1
+					stg_set(varname,x_veld,str(tmp))
+					
+				end if
+				
+				If left(varname,4) = "USED" then
+					set_LCD_STD_FONT()
+					byteh= stg_get("USED-hb",0)
+					bytel= stg_get("USED-lb",0)
+					combined = byteh * 100 + bytel
+					stg_set("USED-y",0,str(combined))
+				else
+					set_SMALL_FONT()
+				end if
+				
+				If x_offset >0 then 'to switch between grid update and loose fields
+					if tmp >9 then 
+						lcd.print(str(tmp),x_offset,y_offset )
+					else
+						IF max <=9 then 'special case one digit weekkwh
+							lcd.print(str(tmp),x_offset,y_offset )
+						else
+							lcd.print("0" + str(tmp),x_offset,y_offset)
+						end if
+					end if
+				else 'for grid fields
+					if tmp >9 then 
+						lcd.print(str(tmp),80 + (x_veld) * 21 ,y_offset )
+					else
+						lcd.print("0" + str(tmp),80 + (x_veld) * 21 ,y_offset )
+					end if
+				end if
+
+end function
+
+
+sub clear_old_rect()
+	
+		lcd.forecolor = BG_ECONO
+		lcd.rectangle(x_1p,y_1p,x_2p,y_2p)
+		lcd.verline(274,30,45)
+		lcd.verline(290,30,45)
+		lcd.horline(274,290,30)
+		lcd.horline(274,290,45)
+		lcd.verline(295,30,45)
+		lcd.verline(311,30,45)
+		lcd.horline(295,311,30)
+		lcd.horline(295,311,45)
+		lcd.verline(223,65,80)
+		lcd.verline(231,65,80)
+		lcd.horline(223,231,65)
+		lcd.horline(223,231,80)
+		lcd.verline(231,65,80)
+		lcd.verline(247,65,80)
+		lcd.horline(231,247,65)
+		lcd.horline(231,247,80)
+		lcd.verline(251,65,80)
+		lcd.verline(267,65,80)
+		lcd.horline(251,267,65)
+		lcd.horline(251,267,80)
+		lcd.verline(267,65,80)
+		lcd.verline(283,65,80)
+		lcd.horline(267,283,65)
+		lcd.horline(267,283,80)
+		lcd.verline(286,65,80)
+		lcd.verline(302,65,80)
+		lcd.horline(286,302,65)
+		lcd.horline(286,302,80)
+		lcd.verline(302,65,80)
+		lcd.verline(318,65,80)
+		lcd.horline(302,318,65)
+		lcd.horline(302,318,80)
+		lcd.verline(252,150,175)
+		lcd.verline(279,150,175)
+		lcd.horline(252,279,175)
+		lcd.horline(252,279,150)
+		lcd.verline(279,150,175)
+		lcd.verline(305,150,175)
+		lcd.horline(279,305,175)
+		lcd.horline(279,355,150)
+	
+end sub
+
+sub signal_strength_set(strength as byte)
+'Bits 0-5 of strength argument correspond to LEDs	
+	
+	dim f,x as byte
+	dim s as string(8)
+	
+	s=mid(bin(strength),3,8)
+	s=strgen(8-len(s),"0")+s	
+	
+	'make 5 clocks
+	io.num=PL_IO_NUM_47
+	for f=0 to 4
+		x=1-val(mid(s,f+4,1))
+		io.lineset(PL_IO_NUM_48,x)
+		io.state=LOW
+		io.state=HIGH
+	next f
+	
+'			signal_strength_set(&b00001) 
+'			signal_strength_set(&b00011) 
+'			signal_strength_set(&b00111) 
+'			signal_strength_set(&b01111) 
+'			signal_strength_set(&b11111) 
+
+end sub
+
+sub on_ser_data_arrival
+
+	dim SerNum as integer
+	SerNum = ser.num
+
+	Dim tmp as string
+	Dim T5tmp as real
+	
+	
+	Dim Rlen as integer
+	Dim Cpos as integer 
+	dim Cpos2 as integer
+	dim n as integer
+	
+	select case SerNum
+	
+		case 0
+		case 1
+		case 2
+		case 3 'DS18B20 Econo-Tibbit
+			Rbuff3txt = Rbuff3txt + ser.getdata(256)
+			Rlen = len(Rbuff3txt)	
+			SYS.debugprint("in ser3 char: "+  Rbuff3txt + chr(13) + chr(10))
+			if rlen >= 255 then 
+				Rbuff3txt=0 
+			end if
+
+	end select
+	
+	Cpos = instr(1,Rbuff3txt,"&",1)	'' find delimiter &
+	
+	Do while Cpos >=5
+	
+		tmp = Rbuff3txt
+		
+			TempValueString = left(Rbuff3txt,Cpos - 1) ' strip &
+			
+			'Now remove used value from buffer
+		
+			Rbuff3txt = right(tmp, Rlen-Cpos)
+			Rlen = Rlen - Cpos
+			
+			SYS.debugprint("Found full value in buffer: "+  TempValueString + chr(13) + chr(10))
+			
+			if left(TempValueString,2) = "t1" then
+				tempvalue = right(TempValueString,len(TempValueString)-3)	'strip first 3 bytes, then we have the count value (t1= or t2=)
+				SYS.debugprint("Temp value =: "+  TempValue + chr(13) + chr(10))
+			end if
+			
+			Cpos = instr(1,Rbuff3txt,"&",1)		
+			
+			set_LCD_STD_FONT()
+			lcd.print("Boiler: " + tempvalue,20,155)
+
+	loop
+	
+
+
+end sub
+
+sub  on_button_released()
+
+
+	set_LCD_STD_FONT()
+
+
+	if ElementStatus =  false then
+		ser.num=2
+		ser.setdata("n")
+		ser.send
+		lcd.print("Status: aan ",20,180)
+		ElementStatus = true
+	else
+		ser.num=2
+		ser.setdata("f")
+		ser.send
+		lcd.print("Status: uit ",20,180)
+		ElementStatus = false
+	end if
+		
+
+
+end sub
+sub on_sys_timer()
+
+
+	set_SMALL_FONT()
+	rtc.getdata(x1,y1,z1)
+	
+'--------------------------------show clock---------------------------------------
+	
+	'print date & time
+	select case len(str(date(x1)))
+	case 1:
+		datestring = "0" + str(date(x1)) 
+	case 2:
+		datestring = str(date(x1)) 		
+	end select
+	
+	select case len(str(month(x1)))
+	case 1:
+		datestring = datestring + "-0" + str(month(x1)) 
+	case 2:
+		datestring = datestring + "-"+ str(month(x1)) 		
+	end select
+
+	select case len(str(year(x1)))
+	case 1:
+		datestring = datestring + "-200" + str(year(x1)) 
+	case 2:
+		datestring = datestring + "-20" + str(year(x1)) 		
+	end select
+	
+	lcd.print(datestring,66,35)
+
+	Select case len(str(hours(y1)))
+	case 1:
+		timestring = "0" + str(hours(y1))
+	case 2:
+		timestring = str(hours(y1))
+	end select
+	
+	Select case len(str(minutes(y1)))
+	case 1:
+		timestring = timestring + ":0" + str(minutes(y1))
+	case 2:
+		timestring = timestring +  ":" + str(minutes(y1))
+
+	end select
+
+	lcd.print(timestring,276,35)
+	
+'------------------------------------ check day, time and max settings -----------------------------------
+
+'1 - construct thisweek and roll-over when week ends, roll over month when ends, roll over year when ends
+'2 - if day-valid, time-valid, celcius-valid then 
+'3 -    if NOT (used-day >= maxday, used-week >= max-week, used-month => max-month, used-year >= max-year)
+'4 -      element - ON
+'5 -      increment used-day, used-week, used-month, used-year
+'6 -    else
+'7 -      element OFF
+'8 -	end if
+
+	dim MAXday as byte
+	dim maxweek as word
+	dim maxmonth as word
+	dim maxyear as word
+	dim starthour as integer
+	dim stophour as integer
+	dim mincelcius as word
+	dim maxcelcius as word
+	dim boilert as word
+	dim expired_minutes as integer
+	dim usedwatt as word
+	dim thishour as integer	
+	dim tmp as string
+	
+	day = weekday(x1)
+	
+	'çheck if day shift, reset dayvalue, if new week starts-reset week counter
+	if day <> val(stg_get("WEEK-day",0)) then
+	    prev_time=0
+		weekdayframe()
+		stg_set("WEEK-day",0,str(day))
+		USEDday=0
+		stg_set("USED-d",0,"0")
+		stg_set("USED-d",1,"0")
+		stg_set("USED-d",2,"0")
+		stg_set("USED-d",3,"0")
+		stg_set("USED-d",4,"0")
+		stg_set("USED-d",5,"0")
+		stg_set("USED-d",6,"0")
+		'stg_set("USED-d",day-1,"0")
+		if day = PL_DOW_MONDAY then
+			USEDweek=0
+			stg_set("USED-w",0,"0")
+		end if
+		prev_time = y1
+	end if
+	
+	'print day usage
+	set_SMALL_FONT()
+	Select case len(stg_get("USED-d",day-1))
+	case 1:
+		lcd.print("0" + stg_get("USED-d",day-1) + " kWh",228,115)
+	case 2:
+		lcd.print(stg_get("USED-d",day-1) + " kWh",228,115)
+	end select
+
+	
+	'check if a new month starts, then reset month USED  
+	if month(x1) <>  stg_get("MONTH-day",0) then 
+		stg_set("MONTH-day",0,str(month(x1)))
+		USEDmonth=0
+		stg_set("USED-m",0,"0")
+		prev_time = y1
+	end if
+
+	'check if a new year starts, then reset year USED  
+	if year(x1) <>  stg_get("YEAR-day",0) then 
+		stg_set("YEAR-day",0,str(year(x1)))
+		USEDyear=0
+		stg_set("USED-y",0,"0")
+		stg_set("USED-hb",0,"0")
+		stg_set("USED-lb",0,"0")
+		prev_time = y1
+	end if
+	
+	
+	elementstatus = false 'start condition before checking if element can be on						
+
+		'check day, time, temperature and max values for week, month, year
+		starthour = stg_get("StartH",day-1) 'subtract 1 because days base is 1, data storage base = 0 
+		stophour = stg_get("StopH",day-1)
+		thishour = hours(y1)
+		
+		if thishour >= starthour and thishour < stophour then ' time check on week day
+		
+			maxweek = val(stg_get("MaxkWh",day-1))
+			mincelcius =  val(stg_get("MinT",day-1)) * 10
+			maxcelcius = val(stg_get("MaxT",day-1)) * 10
+			USEDday = val(stg_get("USED-d",day-1))
+			USEDweek = val(stg_get("USED-w",0))
+			USEDmonth = val(stg_get("USED-m",0))
+			USEDyear = val(stg_get("USED-y",0))
+			MAXyear = val(stg_get("kWhY-hb",0))*100 + val(stg_get("kWhY-lb",0))
+			MAXmonth = val(stg_get("kWhM-hb",0))*100 + val(stg_get("kWhM-lb",0))
+			MAXweek = val(stg_get("kWhW-hb",0))*100 + val(stg_get("kWhW-lb",0))
+			MAXday = val(stg_get("MaxkWh",day-1))
+			boilert = val( left(tempvalue,instr(0,tempvalue,".",1)-1) + right(tempvalue,1)) 'strip the decimal dot
+			
+			if boilert < maxcelcius and heatup then ' boiler temperature check on week day
+	
+				if USEDyear <  MAXyear then 'max year value check
+					if USEDmonth <  MAXmonth then 'max month value check
+						if USEDweek < MAXweek then 'max week value check
+							if USEDday < MAXday then
+								elementstatus = true						
+							end if
+						end if
+					end if
+				end if
+				
+			end if
+			
+			
+			if boilert >= maxcelcius and heatup then
+				heatup=false
+				cooldown=true
+			end if
+			
+			if boilert <= mincelcius and cooldown then
+				heatup=true
+				cooldown=false
+			end if
+
+
+		end if
+	
+		set_LCD_STD_FONT()
+		
+	
+		if ElementStatus =  false then
+			ser.num=2
+			ser.setdata("f")
+			ser.send
+			lcd.print("Status: uit ",20,180)
+		else
+			ser.num=2
+			ser.setdata("n")
+			ser.send
+			lcd.print("Status: aan ",20,180)
+		end if
+		
+
+	if   y1 > prev_time then 'do we have at least one minute expired
+
+		expired_minutes = y1 - prev_time
+		prev_time = y1
+		
+		if elementstatus = true then
+			'calculate used kWh
+			Element = val(stg_get("ELhb",0)) * 100 + val(stg_get("ELlb",0))
+			usedwatt = element * expired_minutes / 60
+
+			'increment week, month, year values
+			USEDdaywatt = USEDdaywatt + usedwatt
+			USEDweekWatt = USEDweekWatt + usedwatt
+			USEDmonthWatt = USEDmonthWatt + usedwatt
+			USEDyearWatt = USEDyearWatt + usedwatt
+			
+			' if we have at least one extra kWh, add it to the totals and subtract 1 kw from counter
+			
+			if USEDdaywatt >= 1000 then '50 for test - 1000 normally
+				tmp = str(val(stg_get("USED-d",day-1))+1)
+				stg_set("USED-d",day-1,tmp)
+				USEDdaywatt = USEDdaywatt - 1000
+			end if
+			
+			if USEDweekWatt >= 1000 then '50 for test - 1000 normally
+				tmp = str(val(stg_get("USED-w",0))+1)
+				stg_set("USED-w",0,tmp)
+				USEDweekWatt = USEDweekWatt - 1000
+			end if
+
+			if USEDmonthWatt >= 1000 then '50 for test - 1000 normally
+				tmp = str(val(stg_get("USED-m",0))+1)
+				stg_set("USED-m",0,tmp)
+				USEDmonthWatt = USEDmonthWatt - 1000
+			end if
+
+			if USEDyearWatt >= 1000 then '50 for test - 1000 normally
+				tmp = str(val(stg_get("USED-y",0))+1)
+				stg_set("USED-y",0,tmp)
+				USEDyearWatt = USEDyearWatt - 1000
+				
+				'increment USED-hb and USED-lb, 
+				
+				byteh = stg_get( "USED-hb",0)
+				bytel = stg_get( "USED-lb",0)
+				combined = byteh * 100 + bytel
+				combined = combined + 1
+				byteh = combined/100
+				bytel = combined - byteh
+				stg_set("USED-hb",0,str(byteh))
+				stg_set("USED-lb",0,str(bytel))
+				
+			end if
+			
+		end if
+
+	end if
+
+	' ----------------------------write week, month and year used to screen-----------------------
+	set_SMALL_FONT()
+	
+	combined = val(stg_get("USED-w",0))
+	
+	select case len(str(combined))
+
+		case 1:
+			lcd.print("00"+ str(combined),226,85)
+		case 2:
+			lcd.print("0"+ str(combined),226,85)
+		case 3:
+			lcd.print(str(combined),226,85)
+	end select
+	
+	combined = val(stg_get("USED-m",0))
+	
+	select case len(str(combined))
+
+		case 1:
+			lcd.print("000"+ str(combined),254,85)
+		case 2:
+			lcd.print("00"+ str(combined),254,85)
+		case 3:
+			lcd.print("0"+ str(combined),254,85)
+		case 4:
+			lcd.print(str(combined),254,85)
+	end select
+
+	combined = val(stg_get("USED-y",0))
+				
+	select case len(str(combined))
+
+		case 1:
+			lcd.print("000"+ str(combined),289,85)
+		case 2:
+			lcd.print("00"+ str(combined),289,85)
+		case 3:
+			lcd.print("0"+ str(combined),289,85)
+		case 4:
+			lcd.print(str(combined),289,85)
+	end select
+
+	'---------------------------------- calc used and remainder-----------------------------------------
+	set_LCD_STD_FONT()
+	
+	byteh = stg_get("USED-hb",0)
+	bytel = stg_get("USED-lb",0)
+	combined = byteh * 100 + bytel
+	
+	select case len(str(combined))
+
+		case 1:
+			lcd.print("000" + str(combined),255,155)
+		case 2:
+			lcd.print("00" + str(combined),255,155)
+		case 3:
+			lcd.print("0" + str(combined),255,155)
+		case 4:
+			lcd.print(str(combined),255,155)
+	end select
+	
+	used = combined
+	
+	byteh = stg_get("kWhY-hb",0)
+	bytel = stg_get("kWhY-lb",0)
+	maxjaar = byteh * 100 + bytel
+
+	remain = maxjaar - used
+	select case len(str(remain))
+
+		case 1:
+			lcd.print("000" + str(remain),255,180)
+		case 2:
+			lcd.print("00" + str(remain),255,180)
+		case 3:
+			lcd.print("0" + str(remain),255,180)
+		case 4:
+			lcd.print(str(remain),255,180)
+	end select
+
+	
+ 
+
+end sub

@@ -1,0 +1,31 @@
+
+'DEFINES-------------------------------------------------------------
+	#define LCD_FIX_FONT "11X19(H).bin"
+	#define LCD_STD_FONT "11X19(HP).bin"
+	#define SMALL_FONT "Tibbo-5x7(V).bin"
+    #define LCD_FORECOLOR 65535
+	#define LCD_BACKGROUNDCOLOR 65535
+	
+'INCLUDES------------------------------------------------------------
+include "settings\trunk\settings.tbh"
+includepp "settings.txt" 'this will allow you to put #defines directly into settings.txt
+
+'DECLARATIONS--------------------------------------------------------
+const BG_BLUE=41736
+const BG_GREEN=17704
+const BG_RED=31
+const TXT_GRAY=46486
+CONST BG_ECONO= &b0011000110000110
+CONST FG_ECONO= &b0010001000011000
+
+
+declare sub set_LCD_STD_FONT() 
+declare sub set_SMALL_FONT()
+declare sub CalcFilling()
+declare sub read_settings()
+declare sub clear_old_rect()
+declare sub clear_old_dayrect()
+declare sub weekdayframe()
+declare function GridUpDown(updown as boolean, varname as string, max as integer, min as integer,x_offset as word, y_offset as word) as boolean
+declare function setRTC(m_year as byte, m_month as byte, m_date as byte, m_hours as byte, m_minutes as byte, m_seconds as byte) as boolean
+declare function getRTC( x  as word, y as word, z as byte) as boolean
